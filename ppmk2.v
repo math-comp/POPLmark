@@ -1048,7 +1048,6 @@ elim: x e2 => [i|k s x IHx|x IHx y _|x IHx t] /= e2 He.
 - move/andP=> [Hkx _]; rewrite {IHx}(IHx _ He Hkx).
   rewrite -{2}(lower_inv (wf_typeof He Hkx)) coerce_weak1.
   case: coerceP => //= [[] // _ t]; rewrite !size_cat /= size_map addnS.
-  Check canRL. Check lift1_inv.
   by apply: canRL _ (lift1_inv _) _; rewrite /lower lift_subst_leq // leq_addl.
 move/andP=> [Hkx Hkt]; rewrite {IHx}(IHx _ He Hkx).
 rewrite -{2}(lower_inv (wf_typeof He Hkx)) coerce_weak1.
