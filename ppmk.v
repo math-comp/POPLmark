@@ -1,9 +1,14 @@
 (* (c) Copyright Microsoft Corporation and Inria. All rights reserved. *)
-From mathcomp Require Import ssreflect ssrbool ssrfun eqtype ssrnat seq.
+From mathcomp Require Import ssreflect ssrbool ssrfun eqtype ssrnat seq fintype.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
 Import Prenex Implicits.
+
+(* To be PRed in mathcomp *)
+Lemma unbump0S i : unbump 0 i.+1 = i. 
+Proof. by rewrite /unbump lt0n /= subn1. Qed.
+
 
 Inductive fsub_type : Set :=
  | FsubTvar (i : nat)
@@ -31,147 +36,96 @@ Qed.
 Definition fsub_eqMixin := Equality.Mixin fsub_eqP.
 Canonical Structure fsub_eqType := EqType fsub_type fsub_eqMixin.
 
-(* Integer index lifting, and inverse *)
-Definition bump h i := (h <= i) + i.
-Definition unbump h i := predn ((i <= h) + i).
+Section FsubTypeTheory.
 
-Lemma bumpK : forall h, cancel (bump h) (unbump h).
-Proof.
-move=> h1 h2; rewrite /bump /unbump.
-by case: (leqP h1 h2) => Hh; [rewrite add1n ltnNge Hh | rewrite add0n (ltnW Hh)].
-Qed.
+Implicit Type (h : nat) (t : fsub_type).
 
-Lemma neq_bump : forall h i, negb (bump h i == h).
-Proof.
-move=> h i; rewrite /bump; case: leqP => Hi; rewrite eqn_leq.
-  by rewrite add1n ltnNge Hi.
-by rewrite add0n andbC leqNgt Hi.
-Qed.
-
-Lemma unbumpK : forall h i, bump h (unbump h i) = (i == h) + i.
-Proof.
-move=> h i; rewrite /bump /unbump.
-case Hi: (i == h); first by rewrite (eqP Hi) leqnn /= leqnn.
-case: (leqP i h) => Hh /=; first by rewrite leqNgt ltn_neqAle Hh Hi.
-by rewrite -ltnS add0n (ltn_predK Hh) Hh add1n (ltn_predK Hh).
-Qed.
-
-Lemma bump_addl : forall h i k, bump (k + h) (k + i) = k + bump h i.
-Proof. by move=> h i k; rewrite /bump leq_add2l addnCA. Qed.
-
-Lemma bumpS : forall h i, bump (S h) (S i) = S (bump h i).
-Proof. move=> *; exact: addnS. Qed.
-
-Lemma unbump_addl : forall h i k, unbump (k + h) (k + i) = k + unbump h i.
-Proof.
-move=> h i k; apply: (can_inj (bumpK (k + h))).
-by rewrite bump_addl !unbumpK eqn_add2l addnCA.
-Qed.
-
-Lemma unbumpS : forall h i, unbump (S h) (S i) = S (unbump h i).
-Proof. move=> *; exact: unbump_addl 1. Qed.
-
-Lemma leq_bump : forall h i j, (i <= bump h j) = (unbump h i <= j).
-Proof.
-move=> h i j; rewrite /bump /unbump -subn1 leq_subLR add1n.
-case: (leqP i h) (leqP h j) => Hi [] Hj //; rewrite ?add1n ?add0n ?ltnS.
-  by rewrite !(leq_trans Hi) // ltnW.
-by rewrite !(leqNgt i) !(leq_trans _ Hi) // ltnW.
-Qed. 
-
-Lemma leq_bump2 : forall h i j, (bump h i <= bump h j) = (i <= j).
-Proof. by move=> h i j; rewrite leq_bump bumpK. Qed.
-
-Lemma bumpC : forall h1 h2 i,
-  bump h1 (bump h2 i) = bump (bump h1 h2) (bump (unbump h2 h1) i).
-Proof.
-move=> h1 h2 i; rewrite {1 5}/bump -leq_bump {2 3}/bump; do 2 nat_congr.
-rewrite leq_bump -/(bump (unbump h2 h1) i) leq_bump {2}/unbump.
-case: (leqP h1 h2) => Hh /=; first by rewrite bumpK.
-by rewrite /bump (leqNgt h1) Hh !add0n /unbump -!(ltnS h2) (ltn_predK Hh) Hh.
-Qed.
-
-Fixpoint lift (h : nat) (t : fsub_type) {struct t} : fsub_type :=
+Fixpoint lift h t {struct t} : fsub_type :=
   match t with
   | FsubTvar i => FsubTvar (bump h i)
   | FsubTop => FsubTop
   | FsubProd b t1 t2 => FsubProd b (lift h t1) (lift (b + h) t2)
   end.
 
-Lemma lift_top : forall h t, (lift h t == FsubTop) = (t == FsubTop).
-Proof. by move=> h []. Qed.
+Lemma lift_top h t : (lift h t == FsubTop) = (t == FsubTop).
+Proof. by case: t. Qed.
 
-Lemma liftC : forall h1 h2 t,
+Lemma liftC h1 h2 t :
   lift h1 (lift h2 t) = lift (bump h1 h2) (lift (unbump h2 h1) t).
 Proof.
-move=> h1 h2 t; elim: t h1 h2 => //= [i|b t1 Hrec1 t2 Hrec2] h1 h2.
-  by rewrite -bumpC.
+elim: t h1 h2 => //= [i|b t1 Hrec1 t2 Hrec2] h1 h2; first by rewrite -bumpC.
 by rewrite Hrec1 -!bump_addl Hrec2 unbump_addl.
 Qed.
 
-Fixpoint wf_type (h : nat) (t : fsub_type) {struct t} : bool :=
+Fixpoint wf_type h t {struct t} : bool :=
   match t with
   | FsubTvar i => i < h
   | FsubTop => true
   | FsubProd b t1 t2 => wf_type h t1 && wf_type (b + h) t2
   end.
 
-Lemma wf_lift : forall h1 h2 t, wf_type h1 (lift h2 t) = wf_type (unbump h2 h1) t.
+Lemma wf_lift h1 h2 t : wf_type h1 (lift h2 t) = wf_type (unbump h2 h1) t.
 Proof.
-move=> h1 h2 t; elim: t h1 h2 => //= [i|b t1 Hrec1 t2 Hrec2] h1 h2.
+elim: t h1 h2 => //= [i|b t1 Hrec1 t2 Hrec2] h1 h2.
   by rewrite !ltnNge leq_bump.
 by rewrite Hrec1 Hrec2 unbump_addl.
 Qed.
 
-Lemma wf_lift0 : forall h t, wf_type (S h) (lift 0 t) = wf_type h t.
-Proof. by move=> h t; rewrite wf_lift. Qed.
+Lemma wf_lift0 h t : wf_type (S h) (lift 0 t) = wf_type h t.
+Proof. by rewrite wf_lift unbump0S. Qed.
+
+End FsubTypeTheory.
 
 Definition type_env := seq fsub_eqType.
 
-Fixpoint lookup (i : nat) (e : type_env) {struct e} : fsub_type :=
+Section TypeEnvTheory.
+
+Implicit Type (h i : nat) (s t : fsub_type) (e : type_env).
+
+Fixpoint lookup i e {struct e} : fsub_type :=
   if e is cons t e' then lift 0 (if i is S i' then lookup i' e' else t)
   else FsubTop.
 
-Fixpoint env_insert (t0 : fsub_type) (h : nat) (e : type_env) {struct h}
-            : type_env :=
+Fixpoint env_insert t0 h e {struct h} : type_env :=
   match h, e with
   | S h', cons t e' => cons (lift h' t) (env_insert t0 h' e')
   | _, _ => cons t0 e
   end.
 
-Lemma size_env_insert : forall t0 h e, size (env_insert t0 h e) = S (size e).
-Proof. by move=> t0; elim=> //= [h Hrec] [|t e] //=; congr S. Qed.
 
-Lemma lookup_env_insert : forall t0 h e i, h <= size e ->
+Lemma size_env_insert t0 h e : size (env_insert t0 h e) = S (size e).
+Proof. by elim: h e=> //= [h ih] [|t e] //=; congr S. Qed.
+
+Lemma lookup_env_insert t0 h e i : h <= size e ->
   lookup (bump h i) (env_insert t0 h e) = lift h (lookup i e).
 Proof.
-by move=> t0; elim=> [|h Hrec] [|t e] [|i] //= Hh; rewrite ?bumpS liftC // Hrec.
+by elim: h e i=> [|h ih] [|t e] [|i] //= ?; rewrite ?bumpS liftC // ih ?unbump0S. 
 Qed.
 
-Fixpoint wf_env (e : type_env) : bool :=
+Fixpoint wf_env e : bool :=
   if e is cons t e' then wf_type (size e') t && wf_env e' else true.
 
-Lemma wf_env_adds : forall e t, wf_env (cons t e) = wf_type (size e) t && wf_env e.
-Proof. done. Qed.
+Lemma wf_env_adds e t : wf_env (cons t e) = wf_type (size e) t && wf_env e.
+Proof. by []. Qed.
 
-Lemma wf_lookup : forall e i, wf_env e -> wf_type (size e) (lookup i e).
+Lemma wf_lookup e i : wf_env e -> wf_type (size e) (lookup i e).
 Proof.
-elim=> // t e Hrec i /=; move/andP=> [Ht He].
+elim: e i=> // t e Hrec i /=; move/andP=> [Ht He].
 rewrite wf_lift0; case: i => //= i; exact: Hrec.
 Qed.
 
-Lemma env_insert_adds : forall t0 h e t,
+Lemma env_insert_adds t0 h e t :
   env_insert t0 (S h) (cons t e) = cons (lift h t) (env_insert t0 h e).
-Proof. done. Qed.
+Proof. by []. Qed.
 
-Lemma wf_env_insert : forall t0 h e, h <= size e ->
+Lemma wf_env_insert t0 h e : h <= size e ->
   wf_env (env_insert t0 h e) = wf_type (size e - h) t0 && wf_env e.
 Proof.
-move=> t0; elim=> [|h Hrec] [|t e] //= Hh.
-by rewrite size_env_insert wf_lift Hrec // /unbump andbCA leqNgt Hh.
+elim: h e=> [|h Hrec] [|t e] //= Hh.
+by rewrite size_env_insert wf_lift Hrec // /unbump andbCA Hh subn1.
 Qed.
 
-Fixpoint subt (e : type_env) (s t : fsub_type) (n : nat) {struct n} : bool :=
+Fixpoint subt e s t n {struct n} : bool :=
   if n is S n' then
      (t == FsubTop)
   || match s, t with
@@ -182,34 +136,34 @@ Fixpoint subt (e : type_env) (s t : fsub_type) (n : nat) {struct n} : bool :=
     end
   else false.
 
-Lemma subt_addr : forall e s t m n, subt e s t m -> subt e s t (m + n).
+Lemma subt_addr e s t m n : subt e s t m -> subt e s t (m + n).
 Proof.
-move=> e s t m n; elim: m => //= [m Hrec] in e s t |- *; case: eqP => // _.
+elim: m => //= [m Hrec] in e s t |- *; case: eqP => // _.
 case: s => //= [i|b s1 s2]; rewrite ?plusE; first by case/orP=> Ht; apply/orP; auto.
 by case: t => // c t1 t2; case/and3P; move/eqP=> <- {c} *; rewrite eqxx !Hrec.
 Qed.
 
-Lemma subt_addl : forall e s t m n, subt e s t m -> subt e s t (n + m).
-Proof. move=> *; rewrite addnC; exact: subt_addr. Qed.
+Lemma subt_addl e s t m n : subt e s t m -> subt e s t (n + m).
+Proof. rewrite addnC; exact: subt_addr. Qed.
 
 Definition sub_ftype e t1 t2 := exists n, subt e t1 t2 n.
 
-Lemma fsubtI : forall e s t n, subt e s t n -> sub_ftype e s t.
-Proof. by move=> e s t n; exists n. Qed.
+Lemma fsubtI e s t n : subt e s t n -> sub_ftype e s t.
+Proof. by exists n. Qed.
 
-Lemma sub_ftype_refl : forall e t, sub_ftype e t t.
+Lemma sub_ftype_refl e t : sub_ftype e t t.
 Proof.
-move=> e t; elim: t e => [i||b t1 Hrec1 t2 Hrec2] e; try by exists 1.
+elim: t e => [i||b t1 Hrec1 t2 Hrec2] e; try by exists 1.
   by exists 1; rewrite /= eqxx.
 move: {Hrec1}(Hrec1 e) {Hrec2}(Hrec2 (ncons b t1 e)) => [n1 Hn1] [n2 Hn2].
 exists (S (n1 + n2)); rewrite /= eqxx /=; apply/andP.
 split; [exact: subt_addr | exact: subt_addl].
 Qed.
 
-Lemma sub_ftype_insert : forall t0 h e s t, h <= size e ->
+Lemma sub_ftype_insert t0 h e s t : h <= size e ->
   sub_ftype e s t -> sub_ftype (env_insert t0 h e) (lift h s) (lift h t).
 Proof.
-move=> t0 h e s t Hh [n Hn]; exists n.
+move=> Hh [n Hn]; exists n.
 elim: n e s t h Hh Hn => //= n Hrec e s t h Hh; rewrite lift_top /=.
 case: eqP => //= _; case: s => //= [i|b s1 s2].
   case: eqP => [<-|_] /= Ht; first by rewrite eqxx.
@@ -219,36 +173,36 @@ rewrite eqxx Hrec //=; case: b Hs2 => /=; last exact: Hrec.
 rewrite -env_insert_adds; exact: Hrec.
 Qed.
 
-Definition elift (e : type_env) := iter (size e) (lift 0).
+Definition elift e := iter (size e) (lift 0).
 
-Lemma sub_ftype_weak : forall e s t e',
+Lemma sub_ftype_weak e s t e' :
   sub_ftype e s t -> sub_ftype (cat e' e) (elift e' s) (elift e' t).
 Proof.
-by move=> e s t; elim=> //= [u e' Hrec]; move/Hrec; apply: (@sub_ftype_insert _ 0).
+by elim: e'=> //= [u e' Hrec]; move/Hrec; apply: (@sub_ftype_insert _ 0).
 Qed.
 
 Definition env_join e t e' : type_env := cat e' (cons t e).
 
-Lemma lookup_env_join : forall e t e' i,
+Lemma lookup_env_join e t e' i :
   lookup i (env_join e t e') =
     if i == size e' then elift (rcons e' t) t else
     lookup i (env_join e FsubTop e').
 Proof.
-by move=> e t; elim=> [|s e' Hrec] [|i] //=; rewrite Hrec (fun_if (lift 0)).
+by elim: e' i => [|s e' Hrec] [|i] //=; rewrite Hrec (fun_if (lift 0)).
 Qed.
 
-Fixpoint tsize (t : fsub_type) : nat :=
+Fixpoint tsize t : nat :=
   if t is FsubProd _ t1 t2 then S (tsize t1 + tsize t2) else 0.
 
-Lemma tsize_lift : forall h t, tsize (lift h t) = tsize t.
-Proof. by move=> h t; elim: t h => //= *; congr S; congr addn. Qed.
+Lemma tsize_lift h t : tsize (lift h t) = tsize t.
+Proof. by elim: t h => //= *; congr S; congr addn. Qed.
 
-Lemma sub_trans_narrow : forall t,
+Lemma sub_trans_narrow t :
    (forall e s u, sub_ftype e s t -> sub_ftype e t u -> sub_ftype e s u)
 /\ (forall e s e' u v, sub_ftype e s t ->
     sub_ftype (env_join e t e') u v -> sub_ftype (env_join e s e') u v).
 Proof.
-move=> t; elim: {t}(S (tsize t)) {-2}t (ltnSn (tsize t)) => //= r Hrec.
+elim: {t}(S (tsize t)) {-2}t (ltnSn (tsize t)) => //= r Hrec.
 have Htrans: forall e s t u, tsize t <= r ->
     sub_ftype e s t -> sub_ftype e t u-> sub_ftype e s u.
 - move=> e s t u Hr Hs [[|m] //=]; case: eqP => [-> | _]; first by exists 1.
@@ -286,13 +240,15 @@ rewrite De'; case/Hrecn {n Hrecn} => n2; rewrite -De' => Hv2.
 by exists (S (n1 + n2)); rewrite /= eqxx subt_addr // subt_addl.
 Qed.
 
-Lemma sub_ftype_trans : forall e s t u,
+Lemma sub_ftype_trans e s t u :
   sub_ftype e s t -> sub_ftype e t u-> sub_ftype e s u.
-Proof. by move=> e s t; case (sub_trans_narrow t); auto. Qed.
+Proof. by case: (sub_trans_narrow t); auto. Qed.
 
-Lemma sub_ftype_narrow : forall e s t e' u v, sub_ftype e s t ->
+Lemma sub_ftype_narrow e s t e' u v : sub_ftype e s t ->
   sub_ftype (env_join e t e') u v -> sub_ftype (env_join e s e') u v.
-Proof. by move=> e s t; case (sub_trans_narrow t); auto. Qed.
+Proof. by case: (sub_trans_narrow t); auto. Qed.
+
+End TypeEnvTheory.
 
 Module NaturalFsubNotation.
 
